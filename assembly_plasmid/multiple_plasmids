@@ -1,0 +1,28 @@
+# 修改参考质粒基因组即可
+REF="/home/mzy/working/2026.08/20260730_1729_MD-101836_FBG55283_92abd000/ref/4kref.fa"
+
+cd ../barcode012
+conda run -n minimap2_env minimap2 -ax map-ont -t 16 $REF /home/mzy/working/2026.08/20260730_1729_MD-101836_FBG55283_92abd000/01.clean_data/barcode012_clean.fastq.gz -o barcode012.sam
+conda run -n samtools_env samtools view -bS barcode012.sam -o barcode012_aligned.bam
+conda run -n samtools_env samtools sort -@ 8 -o barcode012_sorted.bam barcode012_aligned.bam
+conda run -n samtools_env samtools index barcode012_sorted.bam
+
+# 1. 统计覆盖度与深度
+conda run -n samtools_env samtools coverage barcode012_sorted.bam > barcode012_coverage.txt
+conda run -n samtools_env samtools depth barcode012_sorted.bam > barcode012_depth.txt
+
+# 2. 计算 mpileup 并输出为 BCF 中间文件
+conda run -n bcftools_env bcftools mpileup -Ob -f $REF barcode012_sorted.bam -o barcode012_raw.bcf
+
+# 3. 变异检测（Variant Calling）
+conda run -n bcftools_env bcftools call -mv -Oz -o barcode012_variants.vcf.gz barcode012_raw.bcf
+
+# 4. 对原始 VCF 建立索引
+conda run -n bcftools_env bcftools index barcode012_variants.vcf.gz
+
+# 5. [推荐] 过滤低质量变异（保留 QUAL > 20 且 DP > 10 的位点）
+conda run -n bcftools_env bcftools view -i 'QUAL>20 && DP>10' -Oz -o barcode012_filtered.vcf.gz barcode012_variants.vcf.gz
+conda run -n bcftools_env bcftools index barcode012_filtered.vcf.gz
+
+# 6. 生成高质量一致性序列（Consensus）
+conda run -n bcftools_env bcftools consensus -f $REF barcode012_filtered.vcf.gz >barcode012_consensus.fasta
